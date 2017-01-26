@@ -1,0 +1,143 @@
+---
+title: "MachineLearning4"
+author: "Dmitry Karpov"
+date: '24 ÿםגאנÿ 2017 ד '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data downloading and preparation
+
+In this model we are going to predict manner in which the participants did their exercises.
+First, we download the training set and the testing set. Then we delete all columns where any data are missing. Then we also delete some columns with variables that as we think are very unlikely to be helpful. Then we calculate maximum and minimum for each data in the training set and make a linear transformation, transforming each data into [-1,1] segment where 1 represents maximal value and -1 represents minimal value. In order to achieve compatibility, these transformations were also made with test set, but maximal and minimal values were taken from the training set.
+```{r}
+train<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+test<-read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+
+c<-1:160
+for (i in 1:160)
+{
+  c[i]<-sum(is.na(train[,i]))+sum ( (!is.na(train[,i])) & (train[,i]=="") )
+}
+c<-(c==0)
+train<-train[,c]
+test<-test[,c]
+train<-train[,-(1:6)]
+test<-test[,-(1:6)]
+```
+```{r}
+max<-1:53
+min<-1:53
+a<-1:53
+b<-1:53
+for(i in 1:53)
+{
+  max[i]<-max(train[,i])
+  min[i]<-min(train[,i])
+  a[i]<-2/(max[i]-min[i])
+  b[i]<-(-1-(min[i]/max[i]))/(1-(min[i]/max[i]))
+  train[,i]=a[i]*train[,i]+b[i]
+  test[,i]=a[i]*test[,i]+b[i]
+}
+```
+Then we are using the unsupervised prediction method,linear discrimninant analysis,random forest,naive Bayes method,generalised boosting method and multinomial lineal regression. After that we calculate the accuracy of each of the models on the validation set(training them on the training set without validation set beforehand).
+## Including Plots
+
+```{r,echo=FALSE,results="hide"}
+library(foreign)
+library(lattice)
+library(qdapDictionaries)
+library(qdapRegex)
+library(qdapTools)
+library(RColorBrewer)
+library(survival)
+library(splines)
+library(parallel)
+library(gbm)
+library(e1071)
+library("rpart")
+library(qdap)
+library(randomForest)
+library(ggplot2)
+library(lattice)
+library(MASS)
+library(reshape2)
+library(caret)
+library(nnet)
+
+require(reshape2)
+library(klaR)
+```
+```{r}
+set.seed(1)
+#fitting 5 regression methods
+train1<-train(classe~.,method="rpart",train)
+train2<-train(classe~.,method="lda",train)
+train4<-randomForest(classe~.,data=train)
+train5<-gbm(classe~.,data=train)
+train3 <- multinom(classe~., data = train)
+#making predictions of the training set using these 5 models
+
+Realpredict1<-predict(train1,test)
+Realpredict2<-predict(train2,test)
+Realpredict3<-predict(train3,test)
+Realpredict4<-predict(train4,test)
+Realpredict5<-predict(train5,test,n.trees=100)
+Realpredict5<-apply(Realpredict5,1,which.max)
+vec1<-1:5
+vec2<-c("A","B","C","D","E")
+Realpredict5<-mgsub(vec1,vec2,Realpredict5)
+ForAcctrain1<-train(classe~.,method="rpart",train[1:19000,])
+ForAcctrain2<-train(classe~.,method="lda",train[1:19000,])
+ForAcctrain4<-randomForest(classe~.,data=train[1:19000,])
+ForAcctrain5<-gbm(classe~.,data=train[1:19000,])
+ForAcctrain3 <- multinom(classe~., data = train[1:19000,])
+Acc<-1:5
+predict1<-predict(train1,train[19001:19622,])
+Acc[1]<-sum(predict1==train[19001:19622,]$classe)/622
+predict2<-predict(train2,train[19001:19622,])
+Acc[2]<-sum(predict2==train[19001:19622,]$classe)/622
+predict3<-predict(train3,train[19001:19622,])
+Acc[3]<-sum(predict3==train[19001:19622,]$classe)/622
+predict4<-predict(train4,train[19001:19622,])
+Acc[4]<-sum(predict4==train[19001:19622,]$classe)/622
+predict5<-predict(train5,train[19001:19622,],n.trees=100)
+predict5<-apply(predict5,1,which.max)
+predict5<-mgsub(vec1,vec2,predict5)
+Acc[5]<-sum(predict5==train[19001:19622,]$classe)/622
+Frame<-data.frame(Realpredict2,Realpredict3,Realpredict4)
+names(Frame)<-c("Linear_Discr_Analysis","Logistic_Multinom","Random_Forest")
+names(Acc)<-c("Recursive_partitioning","Linear_Discriminant_Analysis","Logistic_Multinomial","Random_Forest","Gradient_boosting")
+```
+Accuracy vector measured by validation set is
+```{r}
+Acc
+```
+while the predictions made only by the methods from following with accuracy>0.5 are
+```{r}
+Frame
+```
+
+Here, we have made the data frame with predictions from three most valuable models. So we need to make a final choice between the predictions.
+Let our choice be the following. If the LDA model and multinomial model predict the same, we follow their mutual predictions. Otherwise we follow the prediction of random forest model, as it seems to be more precise than each of another two.
+```{r}
+Prediction<-1:20
+for (i in 1:20)
+{
+  if (Frame$Linear_Discr_Analysis[i]==Frame$Logistic_Multinom[i])
+  {
+    Prediction[i]<-Frame$Linear_Discr_Analysis[i]
+  }
+  else
+    Prediction[i]<-Frame$Random_Forest[i]
+}
+Prediction<-mgsub(vec1,vec2,Prediction)
+```
+So final predicted classes in test cases, following these three models, are
+```{r}
+Prediction
+```
+This prediction fully complies with quiz results!
